@@ -1,5 +1,5 @@
 /*ckwg +29
- * Copyright 2013-2017 by Kitware, Inc.
+ * Copyright 2013-2019 by Kitware, Inc.
  * All rights reserved.
  *
  * Redistribution and use in source and binary forms, with or without
@@ -84,14 +84,13 @@ static kwiver::vital::config_block_sptr default_config()
                     "This could be either a video file or a text file "
                     "containing new-line separated paths to sequential "
                     "image files.");
-  config->set_value("mask_list_file", "",
-                    "Optional path to an input file containing new-line "
-                    "separated paths to mask images. This list should be "
-                    "parallel in association to files specified in "
-                    "``image_list_file``. Mask image must be the same size as "
-                    "the image they are associated with.\n"
+  config->set_value("mask_video_source", "",
+                    "Optional path to an input file to be opened as a mask video. "
+                    "This could be either a video file or a text file "
+                    "containing new-line separated paths to sequential "
+                    "image files.  The frame count must match video_source."
                     "\n"
-                    "Leave this blank if no image masking is desired.");
+                    "Leave this blank if no masking is desired.");
   config->set_value("invert_masks", false,
                     "If true, all mask images will be inverted after loading. "
                     "This is useful if mask images read in use positive "
@@ -116,12 +115,12 @@ static kwiver::vital::config_block_sptr default_config()
 
   kwiver::vital::algo::video_input::get_nested_algo_configuration("video_reader", config,
                                       kwiver::vital::algo::video_input_sptr());
+  kwiver::vital::algo::video_input::get_nested_algo_configuration("mask_video_reader", config,
+                                      kwiver::vital::algo::video_input_sptr());
   kwiver::vital::algo::detect_features::get_nested_algo_configuration("feature_detector", config,
                                       kwiver::vital::algo::detect_features_sptr());
   kwiver::vital::algo::extract_descriptors::get_nested_algo_configuration("descriptor_extractor", config,
                                       kwiver::vital::algo::extract_descriptors_sptr());
-  kwiver::vital::algo::image_io::get_nested_algo_configuration("image_reader", config,
-                                      kwiver::vital::algo::image_io_sptr());
   kwiver::vital::algo::convert_image::get_nested_algo_configuration("convert_image", config,
                                       kwiver::vital::algo::convert_image_sptr());
   kwiver::vital::algo::feature_descriptor_io::get_nested_algo_configuration("fd_io", config,
@@ -172,19 +171,27 @@ static bool check_config(kwiver::vital::config_block_sptr config)
     }
   }
 
-  // If given an mask image list file, check that the file exists and is a file
-  if (config->has_value("mask_list_file") && config->get_value<std::string>("mask_list_file") != "" )
+  // If given an mask video source, check that the file exists and is a file
+  if (config->has_value("mask_video_source") && config->get_value<std::string>("mask_video_source") != "" )
   {
-    std::string mask_list_file = config->get_value<std::string>("mask_list_file");
-    if (mask_list_file != "" && ! ST::FileExists( kwiver::vital::path_t(mask_list_file), true ))
+    std::string path = config->get_value<std::string>("mask_video_source");
+    if (path != "" && ! ST::FileExists( kwiver::vital::path_t(path), true ))
     {
-      MAPTK_CONFIG_FAIL("mask_list_file path, " << mask_list_file << ", does not exist");
+      MAPTK_CONFIG_FAIL("mask_video_source path, " << path << ", does not exist");
     }
   }
 
   if (!kwiver::vital::algo::video_input::check_nested_algo_configuration("video_reader", config))
   {
     MAPTK_CONFIG_FAIL("video_reader configuration check failed");
+  }
+
+  if (config->has_value("mask_video_reader") && config->get_value<std::string>("mask_video_reader") != "" )
+  {
+    if (!kwiver::vital::algo::video_input::check_nested_algo_configuration("mask_video_reader", config))
+    {
+      MAPTK_CONFIG_FAIL("mask_video_reader configuration check failed");
+    }
   }
 
   if (!kwiver::vital::algo::detect_features::check_nested_algo_configuration("feature_detector", config))
@@ -195,11 +202,6 @@ static bool check_config(kwiver::vital::config_block_sptr config)
   if (!kwiver::vital::algo::extract_descriptors::check_nested_algo_configuration("descriptor_extractor", config))
   {
     MAPTK_CONFIG_FAIL("descriptor_extractor configuration check failed");
-  }
-
-  if (!kwiver::vital::algo::image_io::check_nested_algo_configuration("image_reader", config))
-  {
-    MAPTK_CONFIG_FAIL("image_reader configuration check failed");
   }
 
   if (!kwiver::vital::algo::convert_image::check_nested_algo_configuration("convert_image", config))
@@ -341,10 +343,10 @@ static int maptk_main(int argc, char const* argv[])
   // Set up top level configuration w/ defaults where applicable.
   kwiver::vital::config_block_sptr config = default_config();
   kwiver::vital::algo::video_input_sptr video_reader;
+  kwiver::vital::algo::video_input_sptr mask_video_reader;
   kwiver::vital::algo::detect_features_sptr feature_detector;
   kwiver::vital::algo::extract_descriptors_sptr descriptor_extractor;
   kwiver::vital::algo::feature_descriptor_io_sptr fd_io;
-  kwiver::vital::algo::image_io_sptr image_reader;
   kwiver::vital::algo::convert_image_sptr image_converter;
 
   // If -c/--config given, read in confg file, merge in with default just generated
@@ -359,6 +361,10 @@ static int maptk_main(int argc, char const* argv[])
     set_nested_algo_configuration("video_reader", config, video_reader);
   kwiver::vital::algo::video_input::
     get_nested_algo_configuration("video_reader", config, video_reader);
+  kwiver::vital::algo::video_input::
+    set_nested_algo_configuration("mask_video_reader", config, mask_video_reader);
+  kwiver::vital::algo::video_input::
+    get_nested_algo_configuration("mask_video_reader", config, mask_video_reader);
   kwiver::vital::algo::detect_features::
     set_nested_algo_configuration("feature_detector", config, feature_detector);
   kwiver::vital::algo::detect_features::
@@ -371,10 +377,6 @@ static int maptk_main(int argc, char const* argv[])
     set_nested_algo_configuration("fd_io", config, fd_io);
   kwiver::vital::algo::feature_descriptor_io::
     get_nested_algo_configuration("fd_io", config, fd_io);
-  kwiver::vital::algo::image_io::
-    set_nested_algo_configuration("image_reader", config, image_reader);
-  kwiver::vital::algo::image_io::
-    get_nested_algo_configuration("image_reader", config, image_reader);
   kwiver::vital::algo::convert_image::
     set_nested_algo_configuration("convert_image", config, image_converter);
   kwiver::vital::algo::convert_image::
@@ -404,7 +406,7 @@ static int maptk_main(int argc, char const* argv[])
   // Attempt opening input and output files.
   //  - filepath validity checked above
   std::string video_source = config->get_value<std::string>("video_source");
-  std::string mask_list_file = config->get_value<std::string>("mask_list_file");
+  std::string mask_video_source = config->get_value<std::string>("mask_video_source");
   bool invert_masks = config->get_value<bool>("invert_masks");
   bool expect_multichannel_masks = config->get_value<bool>("expect_multichannel_masks");
   std::string features_dir = config->get_value<std::string>("features_dir");
@@ -414,51 +416,11 @@ static int maptk_main(int argc, char const* argv[])
   LOG_INFO( main_logger, "Reading Video" );
   video_reader->open(video_source);
 
-  // Pre-scan the video to get an accurate frame count
-  // We may wish to remove this later if we start operating on live streams
-  kwiver::vital::timestamp ts;
-  std::vector<kwiver::vital::timestamp> timestamps;
-  while( video_reader->next_frame(ts) )
-  {
-    timestamps.push_back(ts);
-  }
-  // close and re-open to return to the video start
-  video_reader->close();
-  video_reader->open(video_source);
-
-
-  // Create mask image list if a list file was given, else fill list with empty
-  // images. Files vector will only be populated if the use_masks bool is true
   bool use_masks = false;
-  std::vector<kwiver::vital::path_t> mask_files;
-  if( mask_list_file != "" )
+  if( !mask_video_source.empty() && mask_video_reader )
   {
-    LOG_DEBUG( main_logger, "Checking paired mask images from list file" );
-
+    mask_video_reader->open(mask_video_source);
     use_masks = true;
-    // Load file stream
-    std::ifstream mask_ifs(mask_list_file.c_str());
-    if( !mask_ifs )
-    {
-      throw kwiver::vital::path_not_exists(mask_list_file);
-    }
-    // load filepaths from file
-    for( std::string line; std::getline(mask_ifs, line); )
-    {
-      mask_files.push_back(line);
-      if( ! ST::FileExists( mask_files[mask_files.size()-1], true ) )
-      {
-        throw kwiver::vital::path_not_exists( mask_files[mask_files.size()-1] );
-      }
-    }
-    // Check that image/mask list sizes are the same
-    if( timestamps.size() != mask_files.size() )
-    {
-      throw kwiver::vital::invalid_value("video and mask file lists have "
-                                         "different frame counts");
-    }
-    LOG_DEBUG( main_logger,
-               "Validated " << mask_files.size() << " mask image files." );
   }
 
   // Verify that the output directory exists, or make it
@@ -485,8 +447,8 @@ static int maptk_main(int argc, char const* argv[])
   auto handle_frame = [&] ()
   {
     kwiver::vital::metadata_vector md_vec;
-    kwiver::vital::image_container_sptr image;
-    kwiver::vital::timestamp ts;
+    kwiver::vital::image_container_sptr image, mask;
+    kwiver::vital::timestamp ts, mts;
     {
       // lock the video mutex while incrementing the video and getting a frame
       std::lock_guard<std::mutex> vlock(video_mutex);
@@ -498,6 +460,16 @@ static int maptk_main(int argc, char const* argv[])
       // get the frame now even though we do not yet know if it will be needed.
       // This way we can release the lock and let another thread increment the video.
       image = video_reader->frame_image();
+
+      if( use_masks )
+      {
+        if( !mask_video_reader->next_frame(mts) )
+        {
+          return false;
+        }
+        mask = mask_video_reader->frame_image();
+      }
+      LOG_DEBUG( main_logger, "Frame Loaded");
     }
 
     kwiver::vital::metadata_sptr md;
@@ -520,11 +492,9 @@ static int maptk_main(int argc, char const* argv[])
     auto const converted_image = image_converter->convert( image );
 
     // Load the mask for this image if we were given a mask image list
-    kwiver::vital::image_container_sptr mask, converted_mask;
+    kwiver::vital::image_container_sptr converted_mask;
     if( use_masks )
     {
-      mask = image_reader->load( mask_files[ts.get_frame()] );
-
       if( !validate_mask_image( mask, expect_multichannel_masks ) )
       {
         return false;
@@ -569,7 +539,6 @@ static int maptk_main(int argc, char const* argv[])
 
     return true;
   };
-
 
 
   // access the thread pool
