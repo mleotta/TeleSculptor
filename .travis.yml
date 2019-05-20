@@ -34,6 +34,7 @@ addons:
     - libxt-dev
     - libqt4-dev
     - python-sphinx
+    - doxygen
 
 script:
   - export PATH=$HOME/deps/bin:$PATH
