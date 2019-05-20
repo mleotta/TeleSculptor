@@ -33,6 +33,7 @@ addons:
     - libgl1-mesa-dev
     - libxt-dev
     - libqt4-dev
+    - python-sphinx
 
 script:
   - export PATH=$HOME/deps/bin:$PATH
