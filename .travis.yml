@@ -5,6 +5,10 @@ sudo: false
 
 language: cpp
 
+env:
+  - SUPERBUILD="ON"
+  - SUPERBUILD="OFF"
+
 matrix:
   include:
     - compiler: gcc
@@ -42,7 +46,7 @@ script:
           -DCMAKE_CXX_COMPILER=$CXX_COMPILER
           -DCMAKE_INSTALL_PREFIX=$HOME/install
           -DTELESCULPTOR_ENABLE_TESTING:BOOL=ON
-          -DTELESCULPTOR_SUPERBUILD:BOOL=OFF
+          -DTELESCULPTOR_SUPERBUILD:BOOL=$SUPERBUILD
           ../
   - make -j2
   - make install
